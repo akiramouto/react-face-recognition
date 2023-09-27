@@ -1,0 +1,401 @@
+import * as faceapi from "@vladmandic/face-api/dist/face-api.esm.js";
+import * as FaceSDK from "./ReactFaceRecognitionSDK";
+import "./ReactFaceRecognition.css";
+import { useEffect, useRef, forwardRef, useState } from "react";
+import ndarray from "ndarray";
+
+const modelPath = "/face_api_models";
+
+const Component = ({ width, height }) => {
+  let videoRef = useRef();
+  let videoCanvasRef = useRef();
+  let canvasRef = useRef();
+  let imgRef = useRef();
+  let imgCanvasRef = useRef();
+
+  const [init, setInit] = useState(false);
+  const [cameraReady, setcameraReady] = useState(false);
+  const [livenessSession, setLivenessSession] = useState(null);
+  const [detectBbox, setDetectBbox] = useState(null);
+  const [detectBox, setDetectBox] = useState(null);
+  const [detectedFace, setDetectedFace] = useState(null);
+
+  useEffect(() => {
+    setInit(true);
+  }, []);
+
+  useEffect(() => {
+    if (init) {
+      FaceSDK.load_opencv().then(() => {
+        loadSDKModels().then(() => setupCamera());
+      });
+    }
+  }, [init]);
+
+  useEffect(() => {
+    let intervalId = null;
+
+    if (cameraReady) {
+      intervalId = setInterval(() => {
+        renderVideoCanvas();
+      }, 1000 / 60);
+
+      detectFaces();
+    }
+    return () => {
+      if (intervalId) clearInterval(intervalId);
+    };
+  }, [cameraReady]);
+
+  const loadSDKModels = async () => {
+    console.log("INIT SDK ");
+    let liveSession = await FaceSDK.loadLivenessModel();
+    setLivenessSession(liveSession);
+
+    faceapi.tf.setBackend("webgl");
+    faceapi.tf.ready();
+
+    if (faceapi.tf?.env().flagRegistry.CANVAS2D_WILL_READ_FREQUENTLY)
+      faceapi.tf.env().set("CANVAS2D_WILL_READ_FREQUENTLY", true);
+    if (faceapi.tf?.env().flagRegistry.WEBGL_EXP_CONV)
+      faceapi.tf.env().set("WEBGL_EXP_CONV", true);
+    if (faceapi.tf?.env().flagRegistry.WEBGL_EXP_CONV)
+      faceapi.tf.env().set("WEBGL_EXP_CONV", true);
+
+    return Promise.all([
+      console.log("Models loading"),
+      faceapi.nets.ssdMobilenetv1.loadFromUri(modelPath),
+      faceapi.nets.ageGenderNet.loadFromUri(modelPath),
+
+      faceapi.nets.faceLandmark68Net.loadFromUri(modelPath),
+      faceapi.nets.faceRecognitionNet.loadFromUri(modelPath),
+      faceapi.nets.faceExpressionNet.loadFromUri(modelPath),
+    ]);
+  };
+
+  const setupCamera = async () => {
+    const video = videoRef.current;
+    const canvas = canvasRef.current;
+
+    if (!video || !canvas) return null;
+
+    console.log("Setting up camera");
+    // setup webcam. note that navigator.mediaDevices requires that page is accessed via https
+    if (!navigator.mediaDevices) {
+      console.log("Camera Error: access not supported");
+      return null;
+    }
+
+    const constraints = {
+      audio: false,
+      video: { facingMode: "user", resizeMode: "crop-and-scale" },
+    };
+    navigator.mediaDevices
+      .getUserMedia(constraints)
+      .then((stream) => {
+        let video = videoRef.current;
+        if (stream) {
+          video.srcObject = stream;
+        } else {
+          console.log("Camera Error: stream empty");
+          return null;
+        }
+        const track = stream.getVideoTracks()[0];
+        const settings = track.getSettings();
+        if (settings.deviceId) delete settings.deviceId;
+        if (settings.groupId) delete settings.groupId;
+        if (settings.aspectRatio)
+          settings.aspectRatio = Math.trunc(100 * settings.aspectRatio) / 100;
+        console.log(`Camera active: ${track.label}`);
+        console.log(`Camera settings: ${JSON.stringify(settings)}`);
+
+        video.onloadeddata = async () => {
+          video.play();
+          // detectVideo(video, canvas);
+          console.log("Camera Ready");
+          setcameraReady(true);
+        };
+      })
+      .catch((err) => {
+        if (
+          err.name === "PermissionDeniedError" ||
+          err.name === "NotAllowedError"
+        )
+          console.log(
+            `Camera Error: camera permission denied: ${err.message || err}`
+          );
+        if (err.name === "SourceUnavailableError")
+          console.log(
+            `Camera Error: camera not available: ${err.message || err}`
+          );
+      });
+  };
+
+  const renderVideoCanvas = () => {
+    const canvasCtx = videoCanvasRef.current.getContext("2d", {
+      willReadFrequently: true,
+    });
+
+    if (videoRef.current) {
+      canvasCtx.drawImage(videoRef.current, 0, 0, width, height);
+    }
+
+    return canvasCtx;
+  };
+
+  const detectFaces = () => {
+    let detectFaceAnimation = null;
+    cancelAnimationFrame(detectFaceAnimation);
+
+    faceapi
+      .detectSingleFace(videoCanvasRef.current)
+      .withFaceLandmarks()
+      .withFaceDescriptor()
+
+      .then(async (result) => {
+        const ctx = canvasRef.current.getContext("2d", {
+          willReadFrequently: true,
+        });
+        ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
+
+        if (result?.detection) {
+          let result_bbox = ndarray(new Float32Array(1 * 4), [1, 4]);
+
+          let x1 = result.detection.box.x;
+          let y1 = result.detection.box.y;
+          let x2 = result.detection.box.right;
+          let y2 = result.detection.box.bottom;
+
+          result_bbox.set(0, 0, x1);
+          result_bbox.set(0, 1, y1);
+          result_bbox.set(0, 2, x2);
+          result_bbox.set(0, 3, y2);
+          setDetectBbox(result_bbox);
+          setDetectBox(result.detection.box);
+          setDetectedFace(result);
+          drawFaces(ctx, result);
+        } else {
+          setDetectBbox(null);
+          setDetectBox(null);
+          setDetectedFace(null);
+        }
+        detectFaceAnimation = requestAnimationFrame(detectFaces);
+      })
+      .catch((err) => {
+        cancelAnimationFrame(detectFaceAnimation);
+        console.log(`Detect Error: ${err}`);
+      });
+  };
+
+  const drawFaces = (ctx, person) => {
+    if (!ctx) return;
+    // draw box around each face
+    ctx.lineWidth = 6;
+    ctx.strokeStyle = "blue";
+    ctx.fillStyle = "blue";
+    ctx.globalAlpha = 0.6;
+    ctx.beginPath();
+
+    // Sudut Kiri Bawah
+    ctx.moveTo(
+      person.detection.box.topLeft.x,
+      person.detection.box.topLeft.y + person.detection.box.height - 50
+    );
+    ctx.lineTo(
+      person.detection.box.bottomLeft.x,
+      person.detection.box.bottomLeft.y
+    );
+
+    ctx.moveTo(
+      person.detection.box.bottomRight.x - person.detection.box.width + 50,
+      person.detection.box.bottomRight.y
+    );
+    ctx.lineTo(
+      person.detection.box.bottomLeft.x,
+      person.detection.box.bottomLeft.y
+    );
+
+    // Sudut Kiri Atas
+    ctx.moveTo(
+      person.detection.box.bottomLeft.x,
+      person.detection.box.bottomLeft.y - person.detection.box.height + 50
+    );
+    ctx.lineTo(person.detection.box.topLeft.x, person.detection.box.topLeft.y);
+
+    ctx.moveTo(
+      person.detection.box.topRight.x - person.detection.box.width + 50,
+      person.detection.box.topRight.y
+    );
+    ctx.lineTo(person.detection.box.topLeft.x, person.detection.box.topLeft.y);
+
+    // Sudut Kanan Atas
+    ctx.moveTo(
+      person.detection.box.bottomRight.x,
+      person.detection.box.bottomRight.y - person.detection.box.height + 50
+    );
+    ctx.lineTo(
+      person.detection.box.topRight.x,
+      person.detection.box.topRight.y
+    );
+
+    ctx.moveTo(
+      person.detection.box.topLeft.x + person.detection.box.width - 50,
+      person.detection.box.topLeft.y
+    );
+    ctx.lineTo(
+      person.detection.box.topRight.x,
+      person.detection.box.topRight.y
+    );
+
+    // Sudut Kanan Bawah
+    ctx.moveTo(
+      person.detection.box.topRight.x,
+      person.detection.box.topRight.y + person.detection.box.height - 50
+    );
+    ctx.lineTo(
+      person.detection.box.bottomRight.x,
+      person.detection.box.bottomRight.y
+    );
+
+    ctx.moveTo(
+      person.detection.box.bottomLeft.x + person.detection.box.width - 50,
+      person.detection.box.bottomLeft.y
+    );
+    ctx.lineTo(
+      person.detection.box.bottomRight.x,
+      person.detection.box.bottomRight.y
+    );
+
+    // Draw the Path
+    ctx.stroke();
+  };
+
+  const checkLiveness = async () => {
+    if (detectBbox) {
+      const canvas = imgCanvasRef.current;
+      let ctx = canvas.getContext("2d");
+
+      let x = detectBox.x,
+        y = detectBox.y,
+        cheight = y + detectBox.height,
+        speed = 15,
+        isBottom = false,
+        animationScan = null;
+
+      const drawScan = () => {
+        faceapi.draw.drawFaceLandmarks(canvasRef.current, detectedFace);
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = "red";
+        ctx.lineCap = "round";
+        ctx.shadowBlur = 18;
+        ctx.shadowColor = "red";
+        ctx.fillRect(x, y, detectBox.width, 10);
+
+        if (!isBottom && y < cheight) {
+          y += speed;
+        } else if (y >= cheight) {
+          isBottom = true;
+        }
+
+        if (isBottom && y >= detectBox.y) y -= speed;
+        else if (y <= detectBox.y) isBottom = false;
+
+        animationScan = requestAnimationFrame(drawScan);
+      };
+      animationScan = requestAnimationFrame(drawScan);
+
+      const liveResult = await FaceSDK.predictLiveness(
+        livenessSession,
+        "live-canvas",
+        detectBbox
+      );
+
+      let face_count = liveResult.length;
+      if (face_count) {
+        setcameraReady(false);
+        const realFace = liveResult[0][4] < 0.6 ? false : true;
+        let text = `${realFace ? "REAL" : "FAKE"} ${parseInt(
+          liveResult[0][4] * 100
+        )}%`;
+        setTimeout(() => {
+          console.log(text);
+          cancelAnimationFrame(animationScan);
+          ctx.clearRect(0, 0, canvas.width, canvas.height);
+          canvasRef.current
+            .getContext("2d")
+            .clearRect(0, 0, canvas.width, canvas.height);
+          setcameraReady(true);
+        }, 2000);
+      } else {
+        console.log("NO FACE", liveResult);
+      }
+    } else {
+      console.log("NO FACE DETECTION");
+    }
+  };
+
+  return (
+    <>
+      <img ref={imgRef} id="scream" src="/picture.jpg" style={{ width: 0 }} />
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+      >
+        <div
+          className="clippingMaskCircularPath"
+          style={{
+            width,
+            height,
+          }}
+        >
+          <video
+            ref={videoRef}
+            id="live-video"
+            autoPlay
+            playsInline
+            muted
+            hidden
+          />
+          <canvas
+            ref={videoCanvasRef}
+            id="live-canvas"
+            height={height}
+            width={width}
+            style={{
+              position: "absolute",
+              top: "10px",
+            }}
+          />
+
+          <canvas
+            ref={imgCanvasRef}
+            id="img-canvas"
+            height={height}
+            width={width}
+            style={{
+              position: "absolute",
+              top: "10px",
+            }}
+          />
+          <canvas
+            ref={canvasRef}
+            id="detection-canvas"
+            height={height}
+            width={width}
+            style={{
+              position: "absolute",
+              top: "10px",
+            }}
+          />
+        </div>
+      </div>
+      <button onClick={checkLiveness}>Check Liveness</button>
+    </>
+  );
+};
+
+const FaceRecognition = forwardRef(Component);
+export default FaceRecognition;
