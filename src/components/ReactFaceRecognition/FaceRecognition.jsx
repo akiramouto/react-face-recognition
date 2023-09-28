@@ -152,13 +152,68 @@ const Component = () => {
 
     const t0 = performance.now();
     faceapi
-      .detectSingleFace(videoRef.current)
+      .detectAllFaces(videoRef.current)
+      // .detectSingleFace(videoRef.current)
       .withFaceLandmarks()
       .withFaceExpressions()
       .withAgeAndGender()
-      .withFaceDescriptor()
+      // .withFaceDescriptor()
+      .withFaceDescriptors()
 
-      .then(async (result) => {
+      .then(async (results) => {
+        const fps = 1000 / (performance.now() - t0);
+        const ctx = canvasRef.current.getContext("2d", {
+          willReadFrequently: true,
+        });
+        ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
+
+        if (results.length > 0) {
+          for (let index in results) {
+            let result = results[index];
+            let result_bbox = ndarray(new Float32Array(1 * 4), [1, 4]);
+
+            let x1 = result.detection.box.x;
+            let y1 = result.detection.box.y;
+            let x2 = result.detection.box.right;
+            let y2 = result.detection.box.bottom;
+
+            result_bbox.set(index, 0, x1);
+            result_bbox.set(index, 1, y1);
+            result_bbox.set(index, 2, x2);
+            result_bbox.set(index, 3, y2);
+            setDetectBbox(result_bbox);
+            setDetectBox(result.detection.box);
+            setDetectedFace(result);
+            drawFaces(ctx, result, fps, result_bbox);
+          }
+        } else {
+          setDetectBbox(null);
+          setDetectBox(null);
+          setDetectedFace(null);
+        }
+        detectFaceAnimation = requestAnimationFrame(detectFaces);
+      })
+      .catch((err) => {
+        cancelAnimationFrame(detectFaceAnimation);
+        console.log(`Detect Error: ${err}`);
+      });
+  };
+
+  const detectOneFace = () => {
+    let detectFaceAnimation = null;
+    cancelAnimationFrame(detectFaceAnimation);
+
+    const t0 = performance.now();
+    faceapi
+      .detectAllFaces(videoRef.current)
+      // .detectSingleFace(videoRef.current)
+      .withFaceLandmarks()
+      .withFaceExpressions()
+      .withAgeAndGender()
+      // .withFaceDescriptor()
+      .withFaceDescriptors()
+
+      .then(async (results) => {
         const fps = 1000 / (performance.now() - t0);
         const ctx = canvasRef.current.getContext("2d", {
           willReadFrequently: true,
@@ -180,7 +235,7 @@ const Component = () => {
           setDetectBbox(result_bbox);
           setDetectBox(result.detection.box);
           setDetectedFace(result);
-          drawFaces(ctx, result, fps, result_bbox);
+          drawFace(ctx, result, fps, result_bbox);
         } else {
           setDetectBbox(null);
           setDetectBox(null);
@@ -206,6 +261,11 @@ const Component = () => {
   };
 
   const drawFaces = (ctx, person, fps, bbox) => {
+    drawBoxs(ctx, person);
+    drawLabels(ctx, person);
+  };
+
+  const drawFace = (ctx, person, fps, bbox) => {
     drawBox(ctx, person);
 
     FaceSDK.predictLiveness(livenessSession, "live-canvas", bbox).then(
@@ -220,10 +280,44 @@ const Component = () => {
         }
       }
     );
-    drawLabels(ctx, person);
+    drawLabel(ctx, person);
   };
 
   const drawLabels = (ctx, person) => {
+    ctx.font = 'small-caps 20px "Segoe UI"';
+    ctx.fillStyle = "white";
+
+    let breakLinePosition = 25;
+
+    ctx.beginPath();
+    // draw text labels
+    const expression = Object.entries(person.expressions).sort(
+      (a, b) => b[1] - a[1]
+    );
+
+    ctx.fillText(
+      `GENDER: ${Math.round(100 * person.genderProbability)}% ${person.gender}`,
+      person.detection.box.x,
+      person.detection.box.y - 59
+    );
+    ctx.fillText(
+      `expression: ${Math.round(100 * expression[0][1])}% ${expression[0][0]}`,
+      person.detection.box.x,
+      person.detection.box.y - 41
+    );
+    ctx.fillText(
+      `age: ${Math.round(person.age)} years`,
+      person.detection.box.x,
+      person.detection.box.y - 23
+    );
+    ctx.fillText(
+      `roll:${person.angle.roll}° pitch:${person.angle.pitch}° yaw:${person.angle.yaw}°`,
+      person.detection.box.x,
+      person.detection.box.y - 5
+    );
+  };
+
+  const drawLabel = (ctx, person) => {
     ctx.font = 'small-caps 20px "Segoe UI"';
     ctx.fillStyle = "white";
 
@@ -344,6 +438,21 @@ const Component = () => {
     );
 
     // Draw the Path
+    ctx.stroke();
+  };
+
+  const drawBoxs = (ctx, person) => {
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = "blue";
+    ctx.fillStyle = "blue";
+    ctx.globalAlpha = 0.6;
+    ctx.beginPath();
+    ctx.rect(
+      person.detection.box.x,
+      person.detection.box.y,
+      person.detection.box.width,
+      person.detection.box.height
+    );
     ctx.stroke();
   };
 
