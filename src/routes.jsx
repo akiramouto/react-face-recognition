@@ -14,5 +14,9 @@ export const mainRoutes = {
       path: "/home",
       lazy: () => import("./pages/Home"),
     },
+    {
+      path: "/face-register",
+      lazy: () => import("./pages/Register"),
+    },
   ],
 };
