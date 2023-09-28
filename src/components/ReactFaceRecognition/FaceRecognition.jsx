@@ -6,7 +6,7 @@ import ndarray from "ndarray";
 
 const modelPath = "/face_api_models";
 
-const Component = ({ width, height }) => {
+const Component = () => {
   let videoRef = useRef();
   let videoCanvasRef = useRef();
   let canvasRef = useRef();
@@ -17,6 +17,8 @@ const Component = ({ width, height }) => {
   const [detectBbox, setDetectBbox] = useState(null);
   const [detectBox, setDetectBox] = useState(null);
   const [detectedFace, setDetectedFace] = useState(null);
+  const [width, setWidth] = useState(0);
+  const [height, setHeight] = useState(0);
 
   useEffect(() => {
     setInit(true);
@@ -94,6 +96,9 @@ const Component = ({ width, height }) => {
         let video = videoRef.current;
         if (stream) {
           video.srcObject = stream;
+          let { width, height } = stream.getTracks()[0].getSettings();
+          setWidth(width);
+          setHeight(height);
         } else {
           console.log("Camera Error: stream empty");
           return null;
@@ -370,20 +375,8 @@ const Component = ({ width, height }) => {
 
   return (
     <>
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-        }}
-      >
-        <div
-          className="clippingMaskCircularPath"
-          style={{
-            width,
-            height,
-          }}
-        >
+      <div>
+        <div className="clippingMaskCircularPath">
           <video
             ref={videoRef}
             id="live-video"

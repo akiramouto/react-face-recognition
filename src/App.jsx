@@ -19,11 +19,7 @@ function App() {
   };
   return (
     <>
-      <FaceRecognition
-        ref={RealTimeLivenessDetectionRef}
-        height={480}
-        width={640}
-      />
+      <FaceRecognition ref={RealTimeLivenessDetectionRef} />
     </>
   );
 }
