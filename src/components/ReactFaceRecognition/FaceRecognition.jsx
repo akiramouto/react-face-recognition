@@ -189,11 +189,15 @@ const Component = ({ width, height }) => {
       });
   };
 
-  const drawLivenessLabel = (ctx, liveness) => {
+  const drawLivenessLabel = (ctx, liveness, percent) => {
     ctx.font = 'small-caps 20px "Segoe UI"';
     ctx.fillStyle = liveness ? "green" : "red";
     ctx.beginPath();
-    ctx.fillText(`LIVENESS: ${liveness ? "real" : "fake"}`, 10, 25);
+    ctx.fillText(
+      `LIVENESS: ${percent}% (${liveness ? "real" : "fake"})`,
+      10,
+      25
+    );
   };
 
   const drawFaces = (ctx, person, fps, bbox) => {
@@ -204,11 +208,8 @@ const Component = ({ width, height }) => {
         let face_count = liveResult.length;
         if (face_count) {
           const realFace = liveResult[0][4] < 0.6 ? false : true;
-          let text = `${realFace ? "REAL" : "FAKE"} ${parseInt(
-            liveResult[0][4] * 100
-          )}%`;
 
-          drawLivenessLabel(ctx, realFace);
+          drawLivenessLabel(ctx, realFace, parseInt(liveResult[0][4] * 100));
         } else {
           console.log("NO FACE", liveResult);
         }

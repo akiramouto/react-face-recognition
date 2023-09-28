@@ -53,6 +53,8 @@
     "storybook": "^7.4.5",
     "vite": "^4.4.5",
     "webpack": "^5.64.4",
-    "webpack-cli": "^4.9.1"
+    "webpack-cli": "^4.9.1",
+    "vite-plugin-pwa": "^0.16.5",
+    "workbox-window": "^7.0.0"
   }
 }

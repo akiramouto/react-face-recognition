@@ -92,7 +92,7 @@ fs.copyFileSync(
   path.join(destFolder, "opencv_js.wasm")
 );
 
-srcFolder = path.join(__dirname, "node_modules", "@vladmandic/face-api", "model");
+srcFolder = path.join(__dirname, "node_modules", "face-api.js", "model");
 destFolder = path.join(__dirname, "public", "face_api_models");
 fse.copySync(srcFolder, destFolder)
 
