@@ -1,7 +1,4 @@
-.clippingMaskCircularPath {
-    position: relative;
-    overflow: hidden;
-}
+
 
 .clippingMaskCircularPath img {
     position: absolute;

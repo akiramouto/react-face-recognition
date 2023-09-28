@@ -10,8 +10,6 @@ const Component = ({ width, height }) => {
   let videoRef = useRef();
   let videoCanvasRef = useRef();
   let canvasRef = useRef();
-  let imgRef = useRef();
-  let imgCanvasRef = useRef();
 
   const [init, setInit] = useState(false);
   const [cameraReady, setcameraReady] = useState(false);
@@ -147,12 +145,16 @@ const Component = ({ width, height }) => {
     let detectFaceAnimation = null;
     cancelAnimationFrame(detectFaceAnimation);
 
+    const t0 = performance.now();
     faceapi
-      .detectSingleFace(videoCanvasRef.current)
+      .detectSingleFace(videoRef.current)
       .withFaceLandmarks()
+      .withFaceExpressions()
+      .withAgeAndGender()
       .withFaceDescriptor()
 
       .then(async (result) => {
+        const fps = 1000 / (performance.now() - t0);
         const ctx = canvasRef.current.getContext("2d", {
           willReadFrequently: true,
         });
@@ -173,7 +175,7 @@ const Component = ({ width, height }) => {
           setDetectBbox(result_bbox);
           setDetectBox(result.detection.box);
           setDetectedFace(result);
-          drawFaces(ctx, result);
+          drawFaces(ctx, result, fps, result_bbox);
         } else {
           setDetectBbox(null);
           setDetectBox(null);
@@ -187,7 +189,76 @@ const Component = ({ width, height }) => {
       });
   };
 
-  const drawFaces = (ctx, person) => {
+  const drawLivenessLabel = (ctx, liveness) => {
+    ctx.font = 'small-caps 20px "Segoe UI"';
+    ctx.fillStyle = liveness ? "green" : "red";
+    ctx.beginPath();
+    ctx.fillText(`LIVENESS: ${liveness ? "real" : "fake"}`, 10, 25);
+  };
+
+  const drawFaces = (ctx, person, fps, bbox) => {
+    drawBox(ctx, person);
+
+    FaceSDK.predictLiveness(livenessSession, "live-canvas", bbox).then(
+      (liveResult) => {
+        let face_count = liveResult.length;
+        if (face_count) {
+          const realFace = liveResult[0][4] < 0.6 ? false : true;
+          let text = `${realFace ? "REAL" : "FAKE"} ${parseInt(
+            liveResult[0][4] * 100
+          )}%`;
+
+          drawLivenessLabel(ctx, realFace);
+        } else {
+          console.log("NO FACE", liveResult);
+        }
+      }
+    );
+    drawLabels(ctx, person);
+  };
+
+  const drawLabels = (ctx, person) => {
+    ctx.font = 'small-caps 20px "Segoe UI"';
+    ctx.fillStyle = "white";
+
+    let breakLinePosition = 25;
+
+    ctx.beginPath();
+    // draw text labels
+    const expression = Object.entries(person.expressions).sort(
+      (a, b) => b[1] - a[1]
+    );
+
+    ctx.fillText(
+      `GENDER: ${Math.round(100 * person.genderProbability)}% ${person.gender}`,
+      10,
+      (breakLinePosition += 25)
+    );
+    ctx.fillText(
+      `expression: ${Math.round(100 * expression[0][1])}% ${expression[0][0]}`,
+      10,
+      (breakLinePosition += 25)
+    );
+    ctx.fillText(
+      `age: ${Math.round(person.age)} years`,
+      10,
+      (breakLinePosition += 25)
+    );
+    ctx.fillText(
+      `roll:${person.angle.roll}° pitch:${person.angle.pitch}° yaw:${person.angle.yaw}°`,
+      10,
+      (breakLinePosition += 25)
+    );
+  };
+
+  const drawFps = (ctx, fps) => {
+    ctx.font = 'small-caps 20px "Segoe UI"';
+    ctx.fillStyle = "white";
+    ctx.beginPath();
+    ctx.fillText(`FPS: ${fps}`, 10, 25);
+  };
+
+  const drawBox = (ctx, person) => {
     if (!ctx) return;
     // draw box around each face
     ctx.lineWidth = 6;
@@ -272,37 +343,8 @@ const Component = ({ width, height }) => {
 
   const checkLiveness = async () => {
     if (detectBbox) {
-      const canvas = imgCanvasRef.current;
-      let ctx = canvas.getContext("2d");
-
-      let x = detectBox.x,
-        y = detectBox.y,
-        cheight = y + detectBox.height,
-        speed = 15,
-        isBottom = false,
-        animationScan = null;
-
-      const drawScan = () => {
-        faceapi.draw.drawFaceLandmarks(canvasRef.current, detectedFace);
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-        ctx.fillStyle = "red";
-        ctx.lineCap = "round";
-        ctx.shadowBlur = 18;
-        ctx.shadowColor = "red";
-        ctx.fillRect(x, y, detectBox.width, 10);
-
-        if (!isBottom && y < cheight) {
-          y += speed;
-        } else if (y >= cheight) {
-          isBottom = true;
-        }
-
-        if (isBottom && y >= detectBox.y) y -= speed;
-        else if (y <= detectBox.y) isBottom = false;
-
-        animationScan = requestAnimationFrame(drawScan);
-      };
-      animationScan = requestAnimationFrame(drawScan);
+      // const canvas = videoCanvasRef.current;
+      // let ctx = canvas.getContext("2d");
 
       const liveResult = await FaceSDK.predictLiveness(
         livenessSession,
@@ -312,20 +354,11 @@ const Component = ({ width, height }) => {
 
       let face_count = liveResult.length;
       if (face_count) {
-        setcameraReady(false);
         const realFace = liveResult[0][4] < 0.6 ? false : true;
         let text = `${realFace ? "REAL" : "FAKE"} ${parseInt(
           liveResult[0][4] * 100
         )}%`;
-        setTimeout(() => {
-          console.log(text);
-          cancelAnimationFrame(animationScan);
-          ctx.clearRect(0, 0, canvas.width, canvas.height);
-          canvasRef.current
-            .getContext("2d")
-            .clearRect(0, 0, canvas.width, canvas.height);
-          setcameraReady(true);
-        }, 2000);
+        console.log(text);
       } else {
         console.log("NO FACE", liveResult);
       }
@@ -336,7 +369,6 @@ const Component = ({ width, height }) => {
 
   return (
     <>
-      <img ref={imgRef} id="scream" src="/picture.jpg" style={{ width: 0 }} />
       <div
         style={{
           display: "flex",
@@ -357,7 +389,10 @@ const Component = ({ width, height }) => {
             autoPlay
             playsInline
             muted
-            hidden
+            style={{
+              position: "absolute",
+              top: "10px",
+            }}
           />
           <canvas
             ref={videoCanvasRef}
@@ -365,21 +400,10 @@ const Component = ({ width, height }) => {
             height={height}
             width={width}
             style={{
-              position: "absolute",
-              top: "10px",
+              display: "none",
             }}
           />
 
-          <canvas
-            ref={imgCanvasRef}
-            id="img-canvas"
-            height={height}
-            width={width}
-            style={{
-              position: "absolute",
-              top: "10px",
-            }}
-          />
           <canvas
             ref={canvasRef}
             id="detection-canvas"
@@ -392,7 +416,7 @@ const Component = ({ width, height }) => {
           />
         </div>
       </div>
-      <button onClick={checkLiveness}>Check Liveness</button>
+      {/* <button onClick={checkLiveness}>Check Liveness</button> */}
     </>
   );
 };
